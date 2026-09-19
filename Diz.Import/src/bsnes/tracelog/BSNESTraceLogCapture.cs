@@ -49,8 +49,25 @@ public class BsnesTraceLogCaptureController
             
             taskManager.Start();
             Main();
-            taskManager.StartFinishing();
+            if (taskManager.GetState() != TaskManagerState.Finished)
+            {
+                taskManager.StartFinishing(TaskManagerResult.Succeeded);
+            }
             taskManager.WaitForAllTasksToComplete();
+            if (taskManager.GetResult() == TaskManagerResult.Failed)
+            {
+                Exception ex = taskManager.GetResultContext() as Exception;
+                throw ex;
+            }
+        }
+        catch (Exception ex)
+        {
+            if (taskManager.GetState() != TaskManagerState.Finished)
+            {
+                taskManager.StartFinishing(TaskManagerResult.Failed, ex);
+            }
+
+            throw;
         }
         finally
         {
@@ -70,15 +87,27 @@ public class BsnesTraceLogCaptureController
     {
         var tcpClient = new TcpClient();
 
-        var remoteIp = ip;
-        if (ip == null)
+        IPAddress[]? remoteIp = null;
+
+        if (ip != null)
+        {
+            remoteIp = new IPAddress[] { ip };
+        }
+
+        if (remoteIp == null)
         {
             // weirdly, it seems we can't just use IPAddress.Loopback anymore because it resolves to a weird IP
             // that doesn't always work.  we'll DNS lookup localhost instead
             var localhostAddresses = Dns.GetHostAddresses("localhost");
             if (localhostAddresses.Length > 0)
             {
-                remoteIp = localhostAddresses[0]; // just pick the first one.
+                //remoteIp = localhostAddresses[0]; // just pick the first one.
+                // Actually, only picking the first address can be bad, because
+                // this socket supports both IPv6 and IPv4, whereas the server
+                // might only support either one. GetHostAddresses() usually
+                // returns the IPv6 address first, which might make the connection
+                // fail.
+                remoteIp = localhostAddresses;
             }
         }
 
@@ -154,14 +183,14 @@ public class BsnesTraceLogCaptureController
             // we'll use these settings even if they've since changed.
             workItemSnesTraces.CaptureSettings = CaptureSettings;
             
-            taskManager.Run(() =>
+            taskManager.Run(async () =>
             {
                 try
                 {
                     compressedWorkersLimit.Wait(streamProcessor.CancelToken.Token);
                     try
                     {
-                        ProcessCompressedSnesTracesWorkItem(workItemSnesTraces);
+                        await ProcessCompressedSnesTracesWorkItem(workItemSnesTraces);
                     }
                     finally
                     {
@@ -170,6 +199,9 @@ public class BsnesTraceLogCaptureController
                 } catch (OperationCanceledException) {
                     Debug.WriteLine("Cancelling...");
                     // NOP
+                    // Should this call SignalToStop() with a Cancelled result?
+                } catch (Exception ex) {
+                    SignalToStop(TaskManagerResult.Failed, ex);
                 }
             });
             Stats_MarkQueued(workItemSnesTraces);
@@ -182,7 +214,7 @@ public class BsnesTraceLogCaptureController
         Trace.WriteLine($"Processed {count} compressed work items.");
     }
 
-    private async void ProcessCompressedSnesTracesWorkItem(BsnesImportStreamProcessor.WorkItemDecompressSnesTraces? workItemSnesTraces)
+    private async Task ProcessCompressedSnesTracesWorkItem(BsnesImportStreamProcessor.WorkItemDecompressSnesTraces? workItemSnesTraces)
     {
         #if PROFILING
         var mainSpan = Markers.EnterSpan("BSNES ProcessCompressedWorkItem");
@@ -406,10 +438,10 @@ public class BsnesTraceLogCaptureController
         #endif
     }
 
-    public void SignalToStop()
+    public void SignalToStop(TaskManagerResult result, object? resultContext = null)
     {
         streamProcessor.CancelToken.Cancel();
-        taskManager.StartFinishing();
+        taskManager.StartFinishing(result, resultContext);
     }
 
     public (BsnesTraceLogImporter.Stats stats, int bytesToProcess) GetStats()

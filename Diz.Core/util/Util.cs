@@ -203,7 +203,12 @@ public static class Util
             count -= bytesRead;
             offset += bytesRead;
 
-            if (bytesRead == 0 && !continueOnZeroBytesRead)
+            // The continueOnZeroBytesRead condition actually causes the capture window
+            // to dead-lock if the other side disconnects before Diz does. Nobody can
+            // remember what the purpose of this condition was in the first place, so
+            // it'll just be commented out until someone can figure that out, and if
+            // that happens, the respective issue can probably be fixed properly.
+            if (bytesRead == 0 /*&& !continueOnZeroBytesRead*/)
                 break;
         }
 
