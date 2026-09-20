@@ -27,18 +27,17 @@ public class ProjectSettings
     // any public properties here will be shown in the Tools -> Preferences menu
     
     [Category("Project save format settings")]
-    [DisplayName("Project save format options")]
-    [Description("Advanced options for tweaking how your .diz or .dizraw file will be saved (most people never need to mess with this). Takes effect when you save the project.")]
+    [DisplayName("Project save format settings")]
+    [Description("Advanced settings for tweaking how your .diz or .dizraw file will be saved (most people never need to mess with this). Takes effect when you save the project.")]
     public RomBytesOutputFormatSettings RomBytesOutputFormatSettings { get; set; } = new();
 
-    [Category("BSNES Import Options")]
-    [DisplayName("Usage map / tracelog import only changes unmarked Rom Bytes")]
+    [Category("Usage map import settings")]
+    [DisplayName("Usage map import only changes unmarked ROM bytes")]
     [Description(
-        "If true, usage map and tracelog imports/capture won't change anything you already marked. If False, your data will be overwritten from BSNES's usage map. " +
-        "(useful if you manually marked a lot of instructions incorrectly and they're desync'd. BSNES's marking is really good but not foolproof, " +
-        "and it has been known to get M/X flags incorrect rarely). Safest option is to leave this OFF")]
+        "If True, usage map imports won't change anything you already marked. If False, your data will be overwritten from the usage map. " +
+        "(useful if you manually marked a lot of instructions incorrectly and they're desync'd. The import's marking is really good, but not foolproof, " +
+        "and it has been known to get M/X flags incorrect rarely). Safest option is to leave this OFF.")]
     public bool BsnesUsageMapImportOnlyChangedUnmarked { get; set; } = true;
-
     // worst -> best. the default confidence vocabulary; a project may customize this list.
     public static IReadOnlyList<string> DefaultConfidenceLevels { get; } =
         new[] { "Wrong", "None", "Low", "Medium", "High", "VeryHigh" };
@@ -51,6 +50,22 @@ public class ProjectSettings
     public List<string> ConfidenceLevels { get; set; } = new(DefaultConfidenceLevels);
 
     public override string ToString() => "";
+}
+
+[TypeConverter(typeof(ExpandableObjectConverter))]
+public class LiveCaptureUserSettings
+{
+    [Category("Connection settings")]
+    [DisplayName("Emulator host")]
+    [Description(
+        "The host name of the system running the emulator instance to capture. Can also be configured directly in the live capture dialog")]
+    public string LiveCaptureHostName { get; set; } = "localhost";
+
+    [Category("Connection settings")]
+    [DisplayName("Emulator port")]
+    [Description(
+        "The port number of the system running the emulator instance to capture. Can also be configured directly in the live capture dialog")]
+    public short LiveCapturePort { get; set; } = 27015;
 }
 
 // these "User settings" are saved alongside each project BUT are intended to be user-specific and not shared with all users
@@ -78,6 +93,12 @@ public class ProjectUserSettings
     // this is important to keep locally only because we don't want any stored path or ROM filenames to leak into
     // public git repos, potentially exposing people's sensitive user info/etc.
     [Browsable(false)] public string AttachedRomFilename { get; set; } = "";
+
+    [Category("Live capture settings")]
+    [DisplayName("Live capture settings")]
+    [Description(
+        "Settings for the live capturing from an emulator.")]
+    public LiveCaptureUserSettings LiveCaptureSettings { get; set; } = new();
 }
 
 public class Project : IProject

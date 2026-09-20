@@ -196,6 +196,20 @@ public static class Util
     {
         var offset = 0;
 
+        // As far as I can tell, this whole loop structure and especially the continueOnZeroBytesRead
+        // condition were implemented specifically for working with NetworkStreams, but I think this
+        // whole idea was a bit of a mess, so we're no longer using this function with NetworkStreams
+        // and the code can probably be simplified.
+        // Here's the concrete issue with NetworkStreams: Either you configure them to have no read-timeout.
+        // Then the continueOnZeroBytesRead essentially accomplishes nothing at all. Or you configure them
+        // to have some read-timeout, then the condition DOES accomplish something - however, in both of
+        // these cases, the condition also causes the loop to dead-lock whenever our connection is terminated.
+        // We could just remove the loop and make all our NetworkStreams blocking. That would at least
+        // fix any dead-locks from when the other side of the connection closes the socket. However, it would
+        // not fix the dead-lock from when we are the ones trying to close the connection, because AFAIK
+        // the socket only gets closed AFTER our network processing is done, which the blocking read prevents.
+        // Simply put, with how the program is currently written, I don't think there's any way to
+        // make this read logic work with NetworkStreams without handling the disconnect condition externally.
         while (count > 0)
         {
             var bytesRead = stream.Read(buffer, offset, count);
@@ -203,12 +217,7 @@ public static class Util
             count -= bytesRead;
             offset += bytesRead;
 
-            // The continueOnZeroBytesRead condition actually causes the capture window
-            // to dead-lock if the other side disconnects before Diz does. Nobody can
-            // remember what the purpose of this condition was in the first place, so
-            // it'll just be commented out until someone can figure that out, and if
-            // that happens, the respective issue can probably be fixed properly.
-            if (bytesRead == 0 /*&& !continueOnZeroBytesRead*/)
+            if (bytesRead == 0 && !continueOnZeroBytesRead)
                 break;
         }
 

@@ -3,6 +3,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using Diz.Core.model;
 using Diz.Core.util;
 using Diz.Cpu._65816;
 
@@ -30,6 +31,8 @@ public class BsnesTraceLogCaptureController
     public int BlocksToProcess => statsCompressedBlocksToProcess;
     public bool Finishing => streamProcessor.CancelToken.IsCancellationRequested;
 
+    private TcpClient tcpClient;
+
     public BsnesTraceLogCaptureController(ISnesData snesData)
     {
         this.snesData = snesData;
@@ -41,14 +44,14 @@ public class BsnesTraceLogCaptureController
         importer = new BsnesTraceLogImporter(snesData);
     }
     
-    public void Run()
+    public void Run(LiveCaptureUserSettings settings)
     {
         try
         {
             Running = true;
             
             taskManager.Start();
-            Main();
+            Main(settings);
             if (taskManager.GetState() != TaskManagerState.Finished)
             {
                 taskManager.StartFinishing(TaskManagerResult.Succeeded);
@@ -67,7 +70,10 @@ public class BsnesTraceLogCaptureController
                 taskManager.StartFinishing(TaskManagerResult.Failed, ex);
             }
 
-            throw;
+            if (taskManager.GetResult() == TaskManagerResult.Failed)
+            {
+                throw;
+            }
         }
         finally
         {
@@ -78,53 +84,30 @@ public class BsnesTraceLogCaptureController
     private void Shutdown()
     {
         streamProcessor.Shutdown();
+        tcpClient.Close();
         Running = false;
     }
 
-    private static Stream? GetInputStream() => OpenNetworkStream();
+    private Stream? GetInputStream(LiveCaptureUserSettings settings) => OpenNetworkStream(settings);
 
-    private static NetworkStream? OpenNetworkStream(IPAddress? ip = null, int port = 27015)
+    private NetworkStream? OpenNetworkStream(LiveCaptureUserSettings settings)
     {
-        var tcpClient = new TcpClient();
+        tcpClient = new TcpClient();
 
-        IPAddress[]? remoteIp = null;
-
-        if (ip != null)
-        {
-            remoteIp = new IPAddress[] { ip };
-        }
-
-        if (remoteIp == null)
-        {
-            // weirdly, it seems we can't just use IPAddress.Loopback anymore because it resolves to a weird IP
-            // that doesn't always work.  we'll DNS lookup localhost instead
-            var localhostAddresses = Dns.GetHostAddresses("localhost");
-            if (localhostAddresses.Length > 0)
-            {
-                //remoteIp = localhostAddresses[0]; // just pick the first one.
-                // Actually, only picking the first address can be bad, because
-                // this socket supports both IPv6 and IPv4, whereas the server
-                // might only support either one. GetHostAddresses() usually
-                // returns the IPv6 address first, which might make the connection
-                // fail.
-                remoteIp = localhostAddresses;
-            }
-        }
-
-        if (remoteIp == null)
-            return null;
+        IPAddress[] remoteAddress = Dns.GetHostAddresses(settings.LiveCaptureHostName);
         
-        tcpClient.Connect(remoteIp, port);
+        tcpClient.Connect(remoteAddress, settings.LiveCapturePort);
+
         return tcpClient.GetStream();
     }
 
-    protected virtual void Main()
+    protected virtual void Main(LiveCaptureUserSettings settings)
     {
         #if PROFILING
         var mainSpan = Markers.EnterSpan("BSNES Main");
         #endif
 
-        var networkStream = GetInputStream();
+        var networkStream = GetInputStream(settings);
         
         // process incoming stream data until there's none left or we cancel
         ProcessStreamData(networkStream);
@@ -442,6 +425,7 @@ public class BsnesTraceLogCaptureController
     {
         streamProcessor.CancelToken.Cancel();
         taskManager.StartFinishing(result, resultContext);
+        tcpClient.Close();
     }
 
     public (BsnesTraceLogImporter.Stats stats, int bytesToProcess) GetStats()
