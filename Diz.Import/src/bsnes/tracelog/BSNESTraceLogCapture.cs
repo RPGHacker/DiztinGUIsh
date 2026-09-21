@@ -72,7 +72,7 @@ public class BsnesTraceLogCaptureController
 
             if (taskManager.GetResult() == TaskManagerResult.Failed)
             {
-                throw;
+                throw taskManager.GetResultContext() as Exception;
             }
         }
         finally

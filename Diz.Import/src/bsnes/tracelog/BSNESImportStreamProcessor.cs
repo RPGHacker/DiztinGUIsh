@@ -146,10 +146,18 @@ public class BsnesImportStreamProcessor
         {
             Util.ReadNext(stream, item.Header, WorkItemDecompressSnesTraces.HeaderSize);
         }
-        catch (EndOfStreamException)
+        catch (EndOfStreamException ex)
         {
             FreeCompressedWorkItem(ref item);
-            return null;
+
+            EndOfStreamException newException = new EndOfStreamException("Received an EndOfStreamException while waiting for a network read to finish. The remote system likely closed the connection.", ex);
+
+            throw newException;
+        }
+        catch (Exception)
+        {
+            FreeCompressedWorkItem(ref item);
+            throw;
         }
 
         #if PROFILING
@@ -181,10 +189,18 @@ public class BsnesImportStreamProcessor
         {
             bytesRead = Util.ReadNext(stream, item.CompressedBuffer, item.CompressedSize);
         }
-        catch (EndOfStreamException)
+        catch (EndOfStreamException ex)
         {
             FreeCompressedWorkItem(ref item);
-            return null;
+
+            EndOfStreamException newException = new EndOfStreamException("Received an EndOfStreamException while waiting for a network read to finish. The remote system likely closed the connection.", ex);
+
+            throw newException;
+        }
+        catch (Exception)
+        {
+            FreeCompressedWorkItem(ref item);
+            throw;
         }
 
         #if PROFILING

@@ -22,7 +22,7 @@ namespace Diz.Core.util
 
         public void Start()
         {
-            this.state = TaskManagerState.NotStarted;
+            this.state = TaskManagerState.Running;
             var oneSecond = TimeSpan.FromSeconds(1);
             timer = new Timer(_ => Update(), null, oneSecond, oneSecond);
         }
