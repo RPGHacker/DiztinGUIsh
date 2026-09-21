@@ -17,7 +17,10 @@ namespace Diz.Import.bsnes.tracelog;
 // Caution: This class is heavily multi-threaded, pay attention to locking/concurrency issues.
 public class BsnesTraceLogCaptureController
 {
+    // Would be good to somehow unify all of these into a single status enum.
     public bool Running { get; private set; }
+    public bool EstablishingConnection { get; private set; }
+    public bool Finishing => streamProcessor.CancelToken.IsCancellationRequested;
 
     private readonly ISnesData snesData;
     private readonly IWorkerTaskManager taskManager;
@@ -29,7 +32,6 @@ public class BsnesTraceLogCaptureController
     private BsnesTraceLogImporter.Stats cachedStats;
     
     public int BlocksToProcess => statsCompressedBlocksToProcess;
-    public bool Finishing => streamProcessor.CancelToken.IsCancellationRequested;
 
     private TcpClient tcpClient;
 
@@ -49,7 +51,9 @@ public class BsnesTraceLogCaptureController
         try
         {
             Running = true;
-            
+            EstablishingConnection = true;
+
+
             taskManager.Start();
             Main(settings);
             if (taskManager.GetState() != TaskManagerState.Finished)
@@ -108,7 +112,8 @@ public class BsnesTraceLogCaptureController
         #endif
 
         var networkStream = GetInputStream(settings);
-        
+        EstablishingConnection = false;
+
         // process incoming stream data until there's none left or we cancel
         ProcessStreamData(networkStream);
 
