@@ -368,7 +368,7 @@ public class ProjectController(
         return importer.CurrentStats.NumRomBytesModified;
     }
 
-    public long ImportBsnesTraceLogsBinary(IEnumerable<string> filenames, BsnesTraceLogCaptureController.TraceLogCaptureSettings workItemCaptureSettings)
+    public long ImportBsnesTraceLogsBinary(IEnumerable<string> filenames, LiveCaptureUserSettings workItemCaptureSettings)
     {
         var importer = new BsnesTraceLogImporter(Project.Data.GetSnesApi());
 

@@ -28,7 +28,7 @@ public partial class BsnesTraceLogImporter
         public bool changed;
         public bool mDb, mMarks, mDp, mX, mM;
 
-        public BsnesTraceLogCaptureController.TraceLogCaptureSettings CaptureSettings;
+        public LiveCaptureUserSettings CaptureSettings;
 
         // precondition: rombyte (minimum of) read lock already acquired
         private void CompareToExisting(ISnesRomByte romByte)

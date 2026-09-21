@@ -58,14 +58,55 @@ public class LiveCaptureUserSettings
     [Category("Connection settings")]
     [DisplayName("Emulator host")]
     [Description(
-        "The host name of the system running the emulator instance to capture. Can also be configured directly in the live capture dialog")]
+        "The host name of the system running the emulator instance to capture. Can also be configured directly in the live capture dialog.")]
     public string LiveCaptureHostName { get; set; } = "localhost";
 
     [Category("Connection settings")]
     [DisplayName("Emulator port")]
     [Description(
-        "The port number of the system running the emulator instance to capture. Can also be configured directly in the live capture dialog")]
+        "The port number of the system running the emulator instance to capture. Can also be configured directly in the live capture dialog.")]
     public short LiveCapturePort { get; set; } = 27015;
+
+    // these can be modified as the trace is happening:
+    [Category("Output settings")]
+    [DisplayName("Capture labels only (ignore flags)")]
+    [Description(
+        "When True, live capture will only update labels and ignore flags. Can also be configured directly in the live capture dialog.")]
+    public bool CaptureLabelsOnly { get; set; } = false;
+
+    [Category("Output settings")]
+    [DisplayName("Remove existing tracelog comments from executed instructions")]
+    [Description(
+        "When True, live capture will remove existing comments beginning with \"TLC\". Can also be configured directly in the live capture dialog.")]
+    public bool RemoveTracelogLabels { get; set; } = false;
+
+    [Category("Output settings")]
+    [DisplayName("Add new comment to executed instructions (see \"Comment text\" setting)")]
+    [Description(
+        "When True, live capture will add the text from the \"Comment text\" property to executed instructions, prefixed with \"TLC\"." +
+        "Existing non-TLC comments will never be overwritten. Can also be configured directly in the live capture dialog.")]
+    public bool AddTracelogLabel { get; set; } = false;
+
+    [Category("Output settings")]
+    [DisplayName("Comment text")]
+    [Description(
+        "The comment text to add to executed instructions during live capture. Only used when \"Add new comment to executed instructions\" is True. Can also be configured directly in the live capture dialog.")]
+    public string CommentTextToAdd { get; set; } = "";
+
+    public LiveCaptureUserSettings Clone()
+    {
+        LiveCaptureUserSettings retVal = new();
+
+        // There's certainly a nicer way to implement this, but right now I can't be bothered.
+        retVal.LiveCaptureHostName = this.LiveCaptureHostName;
+        retVal.LiveCapturePort = this.LiveCapturePort;
+        retVal.CaptureLabelsOnly = this.CaptureLabelsOnly;
+        retVal.RemoveTracelogLabels = this.RemoveTracelogLabels;
+        retVal.AddTracelogLabel = this.AddTracelogLabel;
+        retVal.CommentTextToAdd = this.CommentTextToAdd;
+
+        return retVal;
+    }
 }
 
 // these "User settings" are saved alongside each project BUT are intended to be user-specific and not shared with all users

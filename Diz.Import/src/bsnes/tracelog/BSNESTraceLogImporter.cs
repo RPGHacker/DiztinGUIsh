@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using Diz.Core.Interfaces;
+using Diz.Core.model;
 using Diz.Cpu._65816;
 
 namespace Diz.Import.bsnes.tracelog;
@@ -92,7 +93,7 @@ public partial class BsnesTraceLogImporter
     // opcode in the Diz project. that may happen AFTER this function is called.
     //
     // WARNING: Snes address can be ANYTHING including instructions executing in RAM. it may not map to a ROM address.
-    private void UpdateTracelogComments(int snesAddress, in BsnesTraceLogCaptureController.TraceLogCaptureSettings traceLogCaptureSettings)
+    private void UpdateTracelogComments(int snesAddress, in LiveCaptureUserSettings traceLogCaptureSettings)
     {
         string? commentText = null;
         if (traceLogCaptureSettings is { AddTracelogLabel: true, CommentTextToAdd.Length: > 0 })
@@ -110,7 +111,7 @@ public partial class BsnesTraceLogImporter
         if (commentText != null)
             tracelogCommentsGenerated.AddOrUpdate(snesAddress, commentText, (_, _) => commentText);
     }
-    // private void UpdateTracelogComments(int snesAddress, in BsnesTraceLogCapture.TraceLogCaptureSettings traceLogCaptureSettings)
+    // private void UpdateTracelogComments(int snesAddress, in LiveCaptureUserSettings traceLogCaptureSettings)
     // {
     //     tracelogCommentsGenerated.TryGetValue(snesAddress, out var comment);
     //

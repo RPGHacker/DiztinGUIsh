@@ -2,6 +2,7 @@
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using Diz.Core.model;
 using Diz.Core.util;
 using ICSharpCode.SharpZipLib.Zip.Compression.Streams;
 
@@ -72,7 +73,7 @@ public class BsnesImportStreamProcessor
         public readonly List<WorkItemSnesTrace?>? ListHeads = new();
 
         // copy of the settings as they existed at the moment of capture
-        public BsnesTraceLogCaptureController.TraceLogCaptureSettings CaptureSettings { get; set;  } = new();
+        public LiveCaptureUserSettings CaptureSettings { get; set; } = new();
     }
 
     // represents both a SNES trace item.
@@ -86,7 +87,7 @@ public class BsnesImportStreamProcessor
         public bool AbridgedFormat;
         
         // copy of the settings as they existed at the moment of original capture
-        public BsnesTraceLogCaptureController.TraceLogCaptureSettings CaptureSettings { get; } = new();
+        //public LiveCaptureUserSettings CaptureSettings { get; } = new();
         
         // linked list: reference to the next SNES trace that we should process
         public WorkItemSnesTrace? Next;

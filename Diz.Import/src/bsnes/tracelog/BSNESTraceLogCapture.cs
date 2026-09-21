@@ -35,9 +35,20 @@ public class BsnesTraceLogCaptureController
 
     private TcpClient tcpClient;
 
-    public BsnesTraceLogCaptureController(ISnesData snesData)
+    public LiveCaptureUserSettings CaptureSettings { get; private set; }
+
+    private const int MaxNumCompressedItemsToProcess = -1; // debug only.
+
+    // set a limit for the max# of worker tasks allowed to operate on the compressed data. tweak this number as needed.
+    // this is purely for throttling and not for thread safety, otherwise # of Tasks will run out of control.
+    private readonly SemaphoreSlim compressedWorkersLimit = new(4, 4);
+    private readonly SemaphoreSlim uncompressedWorkersLimit = new(4, 4);
+
+    public BsnesTraceLogCaptureController(ISnesData snesData, LiveCaptureUserSettings settings)
     {
         this.snesData = snesData;
+        this.CaptureSettings = settings;
+
         streamProcessor = new BsnesImportStreamProcessor();
         
         // taskManager = new WorkerTaskManagerSynchronous(); // single-threaded version (for testing/debug only)
@@ -46,7 +57,7 @@ public class BsnesTraceLogCaptureController
         importer = new BsnesTraceLogImporter(snesData);
     }
     
-    public void Run(LiveCaptureUserSettings settings)
+    public void Run()
     {
         try
         {
@@ -55,7 +66,7 @@ public class BsnesTraceLogCaptureController
 
 
             taskManager.Start();
-            Main(settings);
+            Main();
             if (taskManager.GetState() != TaskManagerState.Finished)
             {
                 taskManager.StartFinishing(TaskManagerResult.Succeeded);
@@ -105,13 +116,13 @@ public class BsnesTraceLogCaptureController
         return tcpClient.GetStream();
     }
 
-    protected virtual void Main(LiveCaptureUserSettings settings)
+    protected virtual void Main()
     {
         #if PROFILING
         var mainSpan = Markers.EnterSpan("BSNES Main");
         #endif
 
-        var networkStream = GetInputStream(settings);
+        var networkStream = GetInputStream(CaptureSettings);
         EstablishingConnection = false;
 
         // process incoming stream data until there's none left or we cancel
@@ -124,32 +135,6 @@ public class BsnesTraceLogCaptureController
         mainSpan.Leave();
         #endif
     }
-
-    private const int MaxNumCompressedItemsToProcess = -1; // debug only.
-
-    // set a limit for the max# of worker tasks allowed to operate on the compressed data. tweak this number as needed.
-    // this is purely for throttling and not for thread safety, otherwise # of Tasks will run out of control.
-    private readonly SemaphoreSlim compressedWorkersLimit = new(4,4);
-    private readonly SemaphoreSlim uncompressedWorkersLimit = new(4, 4);
-
-    // these can be modified as the trace is happening:
-    public struct TraceLogCaptureSettings
-    {
-        public bool RemoveTracelogLabels { get; set; } = false;
-
-        public bool AddTracelogLabel { get; set; } = false;
-
-        public bool CaptureLabelsOnly { get; set; } = false;
-
-        public string CommentTextToAdd { get; set; } = "";
-        
-
-        public TraceLogCaptureSettings()
-        {
-        }
-    }
-
-    public TraceLogCaptureSettings CaptureSettings { get; set; } = new();
 
     private void ProcessStreamData(Stream? networkStream)
     {
@@ -169,7 +154,7 @@ public class BsnesTraceLogCaptureController
             
             // first, let's capture the settings as they were at the TIME OF QUEUEING so when they are processed later,
             // we'll use these settings even if they've since changed.
-            workItemSnesTraces.CaptureSettings = CaptureSettings;
+            workItemSnesTraces.CaptureSettings = CaptureSettings.Clone();
             
             taskManager.Run(async () =>
             {
@@ -373,7 +358,7 @@ public class BsnesTraceLogCaptureController
         Debug.Assert(itemDecompressSnesTraces.WasDecompressed);
     }
 
-    private void ProcessWorkItemsLinkedList(BsnesImportStreamProcessor.WorkItemSnesTrace workItemSnesTrace, in TraceLogCaptureSettings captureSettings)
+    private void ProcessWorkItemsLinkedList(BsnesImportStreamProcessor.WorkItemSnesTrace workItemSnesTrace, in LiveCaptureUserSettings captureSettings)
     {
         // performance critical function. be cautious when making changes
         
@@ -408,7 +393,7 @@ public class BsnesTraceLogCaptureController
         Interlocked.Decrement(ref statsCompressedBlocksToProcess);
     }
 
-    private void ProcessWorkItemSnesTrace(BsnesImportStreamProcessor.WorkItemSnesTrace workItemSnesTrace, in TraceLogCaptureSettings captureSettings)
+    private void ProcessWorkItemSnesTrace(BsnesImportStreamProcessor.WorkItemSnesTrace workItemSnesTrace, in LiveCaptureUserSettings captureSettings)
     {
         #if PROFILING
         var mainSpan = Markers.EnterSpan("BSNES ProcessWorkItem");
