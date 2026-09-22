@@ -1,14 +1,16 @@
 ﻿#nullable enable
 
-using System.ComponentModel;
-using System.ComponentModel.DataAnnotations;
-using System.IO;
-using System.Xml.Serialization;
 using Diz.Core.export;
 using Diz.Core.Interfaces;
 using Diz.Core.model.snes;
 using Diz.Core.serialization.xml_serializer;
 using Diz.Core.util;
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
+using System.IO;
+using System.Linq;
+using System.Text.RegularExpressions;
+using System.Xml.Serialization;
 
 namespace Diz.Core.model;
 
@@ -144,9 +146,16 @@ public class Project : IProject
             return Path.Combine(GetProjectDirectory(), ProjectUserSettings.AttachedRomFilename ?? "");
         }
 
-        set 
+        set
         {
-            string relativePath = Path.GetRelativePath(GetProjectDirectory(), value);
+            string relativePath = value;
+
+            string projectDirectory = GetProjectDirectory();
+
+            if (projectDirectory.Length > 0)
+            {
+                relativePath = Path.GetRelativePath(projectDirectory, value);
+            }
 
             if (ProjectUserSettings.AttachedRomFilename != relativePath)
             {
