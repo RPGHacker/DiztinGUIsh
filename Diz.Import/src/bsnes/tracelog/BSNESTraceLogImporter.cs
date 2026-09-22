@@ -20,11 +20,14 @@ public partial class BsnesTraceLogImporter
     private readonly int romSizeCached;
     private readonly RomMapMode romMapModeCached;
 
+    private readonly RomSpeed romSpeedCached;
+
     public BsnesTraceLogImporter(ISnesData? snesData)
     {
         this.snesData = snesData;
         romSizeCached = this.snesData?.GetRomSize() ?? 0;
         romMapModeCached = this.snesData?.RomMapMode ?? default;
+        romSpeedCached = this.snesData?.RomSpeed ?? default;
 
         modificationDataPool = new ObjPool<ModificationData>();
         InitStats();
@@ -109,7 +112,7 @@ public partial class BsnesTraceLogImporter
         // later, we'll take the entries from this temp list and put them in the Diz project.
         // we could do it here directly, but, it's too slow.
         if (commentText != null)
-            tracelogCommentsGenerated.AddOrUpdate(snesAddress, commentText, (_, _) => commentText);
+            tracelogCommentsGenerated.AddOrUpdate(NormalizeCommentAddress(snesAddress), commentText, (_, _) => commentText);
     }
     // private void UpdateTracelogComments(int snesAddress, in LiveCaptureUserSettings traceLogCaptureSettings)
     // {

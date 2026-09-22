@@ -12,6 +12,11 @@ public partial class BsnesTraceLogImporter
         return RomUtil.ConvertSnesToPc(modDataSnesAddress, romMapModeCached, romSizeCached);
     }
 
+    private int NormalizeCommentAddress(int modDataSnesAddress)
+    {
+        return RomUtil.ConvertPCtoSnes(ConvertSnesToPc(modDataSnesAddress), romMapModeCached, romSpeedCached);
+    }
+
     private static int GetNextSNESAddress(int modDataSnesAddress)
     {
         return RomUtil.CalculateSnesOffsetWithWrap(modDataSnesAddress, 1);

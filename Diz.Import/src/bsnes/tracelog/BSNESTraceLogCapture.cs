@@ -126,10 +126,15 @@ public class BsnesTraceLogCaptureController
         EstablishingConnection = false;
 
         // process incoming stream data until there's none left or we cancel
-        ProcessStreamData(networkStream);
-
-        // finally, copy any comments generated into snesData
-        importer.CopyTempGeneratedCommentsIntoMainSnesData();
+        try
+        {
+            ProcessStreamData(networkStream);
+        }
+        finally
+        {
+            // finally, copy any comments generated into snesData
+            importer.CopyTempGeneratedCommentsIntoMainSnesData();
+        }
 
         #if PROFILING
         mainSpan.Leave();
