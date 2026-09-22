@@ -11,7 +11,7 @@ process more bearable. Disassembling 65C816 code can be quite tricky, so some hu
 
 Diz works GREAT with Tracelog tools, like BSNES+. We modified a version of BSNES to also support live capture from a running BSNES,
 which means you can run the game at full framerate and grab all the juicy data coming off the CPU. This will mark millions of instructions
-correct with the right flags for you, and is a fantastic way to crack a ROM's secrets wide open.
+correct with the right flags for you, and is a fantastic way to crack a ROM's secrets wide open. Newer versions of MesenCE are also supported.
 
 Be sure to also check out BSNES's usage map importing features to fill in sections of data vs code.
 

@@ -23,7 +23,7 @@ View more docs here: https://github.com/IsoFrieze/DiztinGUIsh/blob/master/Diz.Ap
 
 ---
 
-**Realtime tracelog capturing**: We provide a tight integration with a custom BSNES build to capture CPU tracelog data over a socket connection. You don't have to play the game at 2FPS anymore, or deal with wrangling gigabyte-sized tracelog files.  Simply hit 'capture' and Diz will talk directly to a running BSNES CPU, capturing data for as long as you like. Turn the ROM visualizer on and watch this process in realtime.
+**Realtime tracelog capturing**: We provide a tight integration with a few emulators to capture CPU tracelog data over a socket connection. You don't have to play the game at 2FPS anymore, or deal with wrangling gigabyte-sized tracelog files.  Simply hit 'capture' and Diz will talk directly to a supported emulator, capturing data from the CPU for as long as you like. Turn the ROM visualizer on and watch this process in realtime. Currently, this feature is available via our custom build of BSNES-plus, as well as via newer versions of MesenCE.
 
 ![ezgif com-gif-maker](https://user-images.githubusercontent.com/5413064/97286056-69033900-1819-11eb-925d-67e1bbce95a7.gif)
 ![image](https://user-images.githubusercontent.com/5413064/97133932-ed729080-1721-11eb-894e-4c110787aa75.png)

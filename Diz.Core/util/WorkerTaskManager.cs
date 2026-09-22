@@ -16,15 +16,37 @@ namespace Diz.Core.util
         private Timer timer;
         private readonly object timerLock = new();
 
+        private TaskManagerState state = TaskManagerState.NotStarted;
+        private TaskManagerResult result = TaskManagerResult.Succeeded;
+        private object? resultContext = null;
+
         public void Start()
         {
+            this.state = TaskManagerState.Running;
             var oneSecond = TimeSpan.FromSeconds(1);
             timer = new Timer(_ => Update(), null, oneSecond, oneSecond);
         }
 
-        public void StartFinishing()
+        public void StartFinishing(TaskManagerResult result, object? resultContext = null)
         {
+            this.state = TaskManagerState.Finished;
+            this.result = result;
+            this.resultContext = resultContext;
             notFinishing.Set();
+        }
+        public TaskManagerState GetState()
+        {
+            return state;
+        }
+
+        public TaskManagerResult GetResult()
+        {
+            return result;
+        }
+
+        public object? GetResultContext()
+        {
+            return resultContext;
         }
 
         private void Update()
@@ -86,6 +108,10 @@ namespace Diz.Core.util
                 List<Task> tasksCopy;
                 lock (taskLock)
                 {
+                    // Remove completed tasks to prevent deadlock.
+                    while (tasks.Count > 0 && tasks[^1].Status == TaskStatus.RanToCompletion)
+                        tasks.RemoveAt(tasks.Count - 1);
+
                     if (tasks.Count == 0)
                         break;
 
@@ -105,8 +131,15 @@ namespace Diz.Core.util
     // reference implementation that runs synchronously. mostly for benchmarking/etc.
     public class WorkerTaskManagerSynchronous : IWorkerTaskManager
     {
-        public void Start() { }
-        
+        private TaskManagerState state = TaskManagerState.NotStarted;
+        private TaskManagerResult result = TaskManagerResult.Succeeded;
+        private object? resultContext = null;
+
+        public void Start()
+        {
+            state = TaskManagerState.Running;
+        }
+
         public Task Run(Action action, CancellationToken cancelToken)
         {
             var syncTask = new Task(action);
@@ -120,7 +153,44 @@ namespace Diz.Core.util
         }
 
         public void WaitForAllTasksToComplete() { }
-        public void StartFinishing() { }
+        public void StartFinishing(TaskManagerResult result, object? resultContext = null)
+        {
+            this.state = TaskManagerState.Finished;
+            this.result = result;
+            this.resultContext = resultContext;
+        }
+
+        // With all these getters, it might be better to turn this whole interface
+        // into an abstract class instead...
+        public TaskManagerState GetState()
+        {
+            return state;
+        }
+
+        public TaskManagerResult GetResult()
+        {
+            return result;
+        }
+
+        public object? GetResultContext()
+        {
+            return resultContext;
+        }
+
+    }
+
+    public enum TaskManagerState
+    {
+        NotStarted,
+        Running,
+        Finished,
+    }
+
+    public enum TaskManagerResult
+    {
+        Failed,
+        Cancelled,
+        Succeeded,
     }
 
     public interface IWorkerTaskManager
@@ -132,6 +202,12 @@ namespace Diz.Core.util
         Task Run(Action action, CancellationToken cancelToken);
         Task Run(Action action);
 
-        void StartFinishing();
+        void StartFinishing(TaskManagerResult result, object? resultContext = null);
+
+        // With all these getters, it might be better to turn this whole interface
+        // into an abstract class instead...
+        TaskManagerState GetState();
+        TaskManagerResult GetResult();
+        object? GetResultContext();
     }
 }

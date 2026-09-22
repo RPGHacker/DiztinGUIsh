@@ -3,6 +3,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using Diz.Core.model;
 using Diz.Core.util;
 using Diz.Cpu._65816;
 
@@ -16,7 +17,10 @@ namespace Diz.Import.bsnes.tracelog;
 // Caution: This class is heavily multi-threaded, pay attention to locking/concurrency issues.
 public class BsnesTraceLogCaptureController
 {
+    // Would be good to somehow unify all of these into a single status enum.
     public bool Running { get; private set; }
+    public bool EstablishingConnection { get; private set; }
+    public bool Finishing => streamProcessor.CancelToken.IsCancellationRequested;
 
     private readonly ISnesData snesData;
     private readonly IWorkerTaskManager taskManager;
@@ -28,11 +32,23 @@ public class BsnesTraceLogCaptureController
     private BsnesTraceLogImporter.Stats cachedStats;
     
     public int BlocksToProcess => statsCompressedBlocksToProcess;
-    public bool Finishing => streamProcessor.CancelToken.IsCancellationRequested;
 
-    public BsnesTraceLogCaptureController(ISnesData snesData)
+    private TcpClient tcpClient;
+
+    public LiveCaptureUserSettings CaptureSettings { get; private set; }
+
+    private const int MaxNumCompressedItemsToProcess = -1; // debug only.
+
+    // set a limit for the max# of worker tasks allowed to operate on the compressed data. tweak this number as needed.
+    // this is purely for throttling and not for thread safety, otherwise # of Tasks will run out of control.
+    private readonly SemaphoreSlim compressedWorkersLimit = new(4, 4);
+    private readonly SemaphoreSlim uncompressedWorkersLimit = new(4, 4);
+
+    public BsnesTraceLogCaptureController(ISnesData snesData, LiveCaptureUserSettings settings)
     {
         this.snesData = snesData;
+        this.CaptureSettings = settings;
+
         streamProcessor = new BsnesImportStreamProcessor();
         
         // taskManager = new WorkerTaskManagerSynchronous(); // single-threaded version (for testing/debug only)
@@ -46,11 +62,33 @@ public class BsnesTraceLogCaptureController
         try
         {
             Running = true;
-            
+            EstablishingConnection = true;
+
+
             taskManager.Start();
             Main();
-            taskManager.StartFinishing();
+            if (taskManager.GetState() != TaskManagerState.Finished)
+            {
+                taskManager.StartFinishing(TaskManagerResult.Succeeded);
+            }
             taskManager.WaitForAllTasksToComplete();
+            if (taskManager.GetResult() == TaskManagerResult.Failed)
+            {
+                Exception ex = taskManager.GetResultContext() as Exception;
+                throw ex;
+            }
+        }
+        catch (Exception ex)
+        {
+            if (taskManager.GetState() != TaskManagerState.Finished)
+            {
+                taskManager.StartFinishing(TaskManagerResult.Failed, ex);
+            }
+
+            if (taskManager.GetResult() == TaskManagerResult.Failed)
+            {
+                throw taskManager.GetResultContext() as Exception;
+            }
         }
         finally
         {
@@ -61,31 +99,20 @@ public class BsnesTraceLogCaptureController
     private void Shutdown()
     {
         streamProcessor.Shutdown();
+        tcpClient.Close();
         Running = false;
     }
 
-    private static Stream? GetInputStream() => OpenNetworkStream();
+    private Stream? GetInputStream(LiveCaptureUserSettings settings) => OpenNetworkStream(settings);
 
-    private static NetworkStream? OpenNetworkStream(IPAddress? ip = null, int port = 27015)
+    private NetworkStream? OpenNetworkStream(LiveCaptureUserSettings settings)
     {
-        var tcpClient = new TcpClient();
+        tcpClient = new TcpClient();
 
-        var remoteIp = ip;
-        if (ip == null)
-        {
-            // weirdly, it seems we can't just use IPAddress.Loopback anymore because it resolves to a weird IP
-            // that doesn't always work.  we'll DNS lookup localhost instead
-            var localhostAddresses = Dns.GetHostAddresses("localhost");
-            if (localhostAddresses.Length > 0)
-            {
-                remoteIp = localhostAddresses[0]; // just pick the first one.
-            }
-        }
-
-        if (remoteIp == null)
-            return null;
+        IPAddress[] remoteAddress = Dns.GetHostAddresses(settings.LiveCaptureHostName);
         
-        tcpClient.Connect(remoteIp, port);
+        tcpClient.Connect(remoteAddress, settings.LiveCapturePort);
+
         return tcpClient.GetStream();
     }
 
@@ -95,8 +122,9 @@ public class BsnesTraceLogCaptureController
         var mainSpan = Markers.EnterSpan("BSNES Main");
         #endif
 
-        var networkStream = GetInputStream();
-        
+        var networkStream = GetInputStream(CaptureSettings);
+        EstablishingConnection = false;
+
         // process incoming stream data until there's none left or we cancel
         ProcessStreamData(networkStream);
 
@@ -107,32 +135,6 @@ public class BsnesTraceLogCaptureController
         mainSpan.Leave();
         #endif
     }
-
-    private const int MaxNumCompressedItemsToProcess = -1; // debug only.
-
-    // set a limit for the max# of worker tasks allowed to operate on the compressed data. tweak this number as needed.
-    // this is purely for throttling and not for thread safety, otherwise # of Tasks will run out of control.
-    private readonly SemaphoreSlim compressedWorkersLimit = new(4,4);
-    private readonly SemaphoreSlim uncompressedWorkersLimit = new(4, 4);
-
-    // these can be modified as the trace is happening:
-    public struct TraceLogCaptureSettings
-    {
-        public bool RemoveTracelogLabels { get; set; } = false;
-
-        public bool AddTracelogLabel { get; set; } = false;
-
-        public bool CaptureLabelsOnly { get; set; } = false;
-
-        public string CommentTextToAdd { get; set; } = "";
-        
-
-        public TraceLogCaptureSettings()
-        {
-        }
-    }
-
-    public TraceLogCaptureSettings CaptureSettings { get; set; } = new();
 
     private void ProcessStreamData(Stream? networkStream)
     {
@@ -152,16 +154,16 @@ public class BsnesTraceLogCaptureController
             
             // first, let's capture the settings as they were at the TIME OF QUEUEING so when they are processed later,
             // we'll use these settings even if they've since changed.
-            workItemSnesTraces.CaptureSettings = CaptureSettings;
+            workItemSnesTraces.CaptureSettings = CaptureSettings.Clone();
             
-            taskManager.Run(() =>
+            taskManager.Run(async () =>
             {
                 try
                 {
                     compressedWorkersLimit.Wait(streamProcessor.CancelToken.Token);
                     try
                     {
-                        ProcessCompressedSnesTracesWorkItem(workItemSnesTraces);
+                        await ProcessCompressedSnesTracesWorkItem(workItemSnesTraces);
                     }
                     finally
                     {
@@ -170,6 +172,9 @@ public class BsnesTraceLogCaptureController
                 } catch (OperationCanceledException) {
                     Debug.WriteLine("Cancelling...");
                     // NOP
+                    // Should this call SignalToStop() with a Cancelled result?
+                } catch (Exception ex) {
+                    SignalToStop(TaskManagerResult.Failed, ex);
                 }
             });
             Stats_MarkQueued(workItemSnesTraces);
@@ -182,7 +187,7 @@ public class BsnesTraceLogCaptureController
         Trace.WriteLine($"Processed {count} compressed work items.");
     }
 
-    private async void ProcessCompressedSnesTracesWorkItem(BsnesImportStreamProcessor.WorkItemDecompressSnesTraces? workItemSnesTraces)
+    private async Task ProcessCompressedSnesTracesWorkItem(BsnesImportStreamProcessor.WorkItemDecompressSnesTraces? workItemSnesTraces)
     {
         #if PROFILING
         var mainSpan = Markers.EnterSpan("BSNES ProcessCompressedWorkItem");
@@ -353,7 +358,7 @@ public class BsnesTraceLogCaptureController
         Debug.Assert(itemDecompressSnesTraces.WasDecompressed);
     }
 
-    private void ProcessWorkItemsLinkedList(BsnesImportStreamProcessor.WorkItemSnesTrace workItemSnesTrace, in TraceLogCaptureSettings captureSettings)
+    private void ProcessWorkItemsLinkedList(BsnesImportStreamProcessor.WorkItemSnesTrace workItemSnesTrace, in LiveCaptureUserSettings captureSettings)
     {
         // performance critical function. be cautious when making changes
         
@@ -388,7 +393,7 @@ public class BsnesTraceLogCaptureController
         Interlocked.Decrement(ref statsCompressedBlocksToProcess);
     }
 
-    private void ProcessWorkItemSnesTrace(BsnesImportStreamProcessor.WorkItemSnesTrace workItemSnesTrace, in TraceLogCaptureSettings captureSettings)
+    private void ProcessWorkItemSnesTrace(BsnesImportStreamProcessor.WorkItemSnesTrace workItemSnesTrace, in LiveCaptureUserSettings captureSettings)
     {
         #if PROFILING
         var mainSpan = Markers.EnterSpan("BSNES ProcessWorkItem");
@@ -406,10 +411,11 @@ public class BsnesTraceLogCaptureController
         #endif
     }
 
-    public void SignalToStop()
+    public void SignalToStop(TaskManagerResult result, object? resultContext = null)
     {
         streamProcessor.CancelToken.Cancel();
-        taskManager.StartFinishing();
+        taskManager.StartFinishing(result, resultContext);
+        tcpClient.Close();
     }
 
     public (BsnesTraceLogImporter.Stats stats, int bytesToProcess) GetStats()

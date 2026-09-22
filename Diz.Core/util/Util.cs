@@ -189,28 +189,21 @@ public static class Util
     public static int ReadNext(Stream stream, byte[] buffer, int count)
     {
         // not in love with this.
-        return DoReadNext(stream, buffer, count, stream is NetworkStream);
+        bool isNetworkConnection = stream is NetworkStream;
+        int readResult = DoReadNext(stream, buffer, count, isNetworkConnection);
+
+        //if (isNetworkConnection && (readResult != count || readResult == 0))
+        //{
+        //    throw new IOException("Couldn't finish a network read operation. The other side likely closed the connection.");
+        //}
+
+        return readResult;
     }
 
     private static int DoReadNext(Stream stream, byte[] buffer, int count, bool continueOnZeroBytesRead=false)
     {
-        var offset = 0;
-
-        while (count > 0)
-        {
-            var bytesRead = stream.Read(buffer, offset, count);
-                
-            count -= bytesRead;
-            offset += bytesRead;
-
-            if (bytesRead == 0 && !continueOnZeroBytesRead)
-                break;
-        }
-
-        if (count > 0)
-            throw new EndOfStreamException();
-
-        return offset;
+        stream.ReadExactly(buffer, 0, count);
+        return count;
     }
 
     public static string GetEnumDescription(Enum value)

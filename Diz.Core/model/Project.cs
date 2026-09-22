@@ -26,21 +26,81 @@ public class ProjectSettings
     // any public properties here will be shown in the Tools -> Preferences menu
     
     [Category("Project save format settings")]
-    [DisplayName("Project save format options")]
-    [Description("Advanced options for tweaking how your .diz or .dizraw file will be saved (most people never need to mess with this). Takes effect when you save the project.")]
+    [DisplayName("Project save format settings")]
+    [Description("Advanced settings for tweaking how your .diz or .dizraw file will be saved (most people never need to mess with this). Takes effect when you save the project.")]
     public RomBytesOutputFormatSettings RomBytesOutputFormatSettings { get; set; } = new();
 
-    [Category("BSNES Import Options")]
-    [DisplayName("Usage map / tracelog import only changes unmarked Rom Bytes")]
+    [Category("Usage map import settings")]
+    [DisplayName("Usage map import only changes unmarked ROM bytes")]
     [Description(
-        "If true, usage map and tracelog imports/capture won't change anything you already marked. If False, your data will be overwritten from BSNES's usage map. " +
-        "(useful if you manually marked a lot of instructions incorrectly and they're desync'd. BSNES's marking is really good but not foolproof, " +
-        "and it has been known to get M/X flags incorrect rarely). Safest option is to leave this OFF")]
+        "If True, usage map imports won't change anything you already marked. If False, your data will be overwritten from the usage map. " +
+        "(useful if you manually marked a lot of instructions incorrectly and they're desync'd. The import's marking is really good, but not foolproof, " +
+        "and it has been known to get M/X flags incorrect rarely). Safest option is to leave this OFF.")]
     public bool BsnesUsageMapImportOnlyChangedUnmarked { get; set; } = true;
 
     public override string ToString() => "";
 }
 
+[TypeConverter(typeof(ExpandableObjectConverter))]
+public class LiveCaptureUserSettings
+{
+    [Category("Connection settings")]
+    [DisplayName("Emulator host")]
+    [Description(
+        "The host name of the system running the emulator instance to capture. Can also be configured directly in the live capture dialog.")]
+    public string LiveCaptureHostName { get; set; } = "localhost";
+
+    [Category("Connection settings")]
+    [DisplayName("Emulator port")]
+    [Description(
+        "The port number of the system running the emulator instance to capture. Can also be configured directly in the live capture dialog.")]
+    public short LiveCapturePort { get; set; } = 27015;
+
+    // these can be modified as the trace is happening:
+    [Category("Output settings")]
+    [DisplayName("Capture labels only (ignore flags)")]
+    [Description(
+        "When True, live capture will only update labels and ignore flags. Can also be configured directly in the live capture dialog.")]
+    public bool CaptureLabelsOnly { get; set; } = false;
+
+    [Category("Output settings")]
+    [DisplayName("Remove existing tracelog comments from executed instructions")]
+    [Description(
+        "When True, live capture will remove existing comments beginning with \"TLC\". Can also be configured directly in the live capture dialog.")]
+    public bool RemoveTracelogLabels { get; set; } = false;
+
+    [Category("Output settings")]
+    [DisplayName("Add new comment to executed instructions (see \"Comment text\" setting)")]
+    [Description(
+        "When True, live capture will add the text from the \"Comment text\" property to executed instructions, prefixed with \"TLC\"." +
+        "Existing non-TLC comments will never be overwritten. Can also be configured directly in the live capture dialog.")]
+    public bool AddTracelogLabel { get; set; } = false;
+
+    [Category("Output settings")]
+    [DisplayName("Comment text")]
+    [Description(
+        "The comment text to add to executed instructions during live capture. Only used when \"Add new comment to executed instructions\" is True. Can also be configured directly in the live capture dialog.")]
+    public string CommentTextToAdd { get; set; } = "";
+
+    public LiveCaptureUserSettings Clone()
+    {
+        LiveCaptureUserSettings retVal = new();
+
+        // There's certainly a nicer way to implement this, but right now I can't be bothered.
+        retVal.LiveCaptureHostName = this.LiveCaptureHostName;
+        retVal.LiveCapturePort = this.LiveCapturePort;
+        retVal.CaptureLabelsOnly = this.CaptureLabelsOnly;
+        retVal.RemoveTracelogLabels = this.RemoveTracelogLabels;
+        retVal.AddTracelogLabel = this.AddTracelogLabel;
+        retVal.CommentTextToAdd = this.CommentTextToAdd;
+
+        return retVal;
+    }
+}
+
+// these "User settings" are saved alongside each project BUT are intended to be user-specific and not shared with all users
+// i.e. unlike the main project file, the user shoudn't check their project settings (in a .dizprefs file) into git, it should be gitignore'd
+// (NOTE: there's a different settings file for global Application-specific stuff, and for stuff saved WITH the project intended to be shared)
 public class ProjectUserSettings
 {
     // these settings are saved per-project BUT are intended to be user-specific and not shared with all users
@@ -55,6 +115,12 @@ public class ProjectUserSettings
     // this is important to keep locally only because we don't want any stored path or ROM filenames to leak into
     // public git repos, potentially exposing people's sensitive user info/etc.
     public string AttachedRomFilename { get; set; } = "";
+
+    [Category("Live capture settings")]
+    [DisplayName("Live capture settings")]
+    [Description(
+        "Settings for the live capturing from an emulator.")]
+    public LiveCaptureUserSettings LiveCaptureSettings { get; set; } = new();
 }
 
 public class Project : IProject
@@ -73,20 +139,26 @@ public class Project : IProject
     [XmlIgnore]
     public string AttachedRomFilename
     {
-        get => ProjectUserSettings.AttachedRomFilename ?? "";
+        get
+        {
+            return Path.Combine(GetProjectDirectory(), ProjectUserSettings.AttachedRomFilename ?? "");
+        }
+
         set 
         {
-            if (ProjectUserSettings.AttachedRomFilename != value)
+            string relativePath = Path.GetRelativePath(GetProjectDirectory(), value);
+
+            if (ProjectUserSettings.AttachedRomFilename != relativePath)
             {
                 if (Session != null) Session.UnsavedChanges = true;
             }
 
-            // below is same as: this.SetField(PropertyChanged, ProjectUserSettings.AttachedFromFilename, value);
-            
-            if (NotifyPropertyChangedExtensions.FieldIsEqual(ProjectUserSettings.AttachedRomFilename, value)) 
+            // below is same as: this.SetField(PropertyChanged, ProjectUserSettings.AttachedFromFilename, relativePath);
+
+            if (NotifyPropertyChangedExtensions.FieldIsEqual(ProjectUserSettings.AttachedRomFilename, relativePath)) 
                 return;
             
-            ProjectUserSettings.AttachedRomFilename = value;
+            ProjectUserSettings.AttachedRomFilename = relativePath;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AttachedRomFilename)));
         }
     }
@@ -166,7 +238,7 @@ public class Project : IProject
 
             if (session != null)
             {
-                session.PropertyChanged -= SessionOnPropertyChanged;
+                //session.PropertyChanged -= SessionOnPropertyChanged;
                 previouslyUnsaved = session.UnsavedChanges;
             }
 
@@ -175,7 +247,7 @@ public class Project : IProject
             if (session == null) 
                 return;
                 
-            session.PropertyChanged += SessionOnPropertyChanged;
+            //session.PropertyChanged += SessionOnPropertyChanged;
             session.UnsavedChanges = previouslyUnsaved;
         }
     }
@@ -187,7 +259,18 @@ public class Project : IProject
         logWriterSettings = new LogWriterSettings();
         PropertyChanged += ProjectPropertyChanged;
     }
-        
+    private string GetProjectDirectory()
+    {
+        var projDir = session?.ProjectDirectory ?? "";
+        if (projDir != "")
+            return projDir;
+
+        string projFileName = session?.ProjectFileName ?? "";
+
+        return projFileName != "" ? (Util.GetDirNameOrEmpty(projFileName) ?? "") : "";
+    }
+
+    /*
     private string GetAbsolutePathToRomFile()
     {
         var pathToProjectFile = GetFullBasePathToRomFile(session?.ProjectFileName ?? "");
@@ -203,7 +286,7 @@ public class Project : IProject
                 
         return projFileName != "" ? Util.GetDirNameOrEmpty(projFileName) : "";
     }
-        
+      
     private void SessionOnPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         switch (e.PropertyName)
@@ -215,6 +298,7 @@ public class Project : IProject
             
         PropertyChanged?.Invoke(sender, e);
     }
+    */
 
     private void ProjectPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {

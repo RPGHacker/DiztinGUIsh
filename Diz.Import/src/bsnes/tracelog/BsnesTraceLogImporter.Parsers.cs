@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using Diz.Core.model;
 using Diz.Core.util;
 
 namespace Diz.Import.bsnes.tracelog;
@@ -37,12 +38,12 @@ public partial class BsnesTraceLogImporter
     // PERFORMANCE CRITICAL FUNCTION
     // WARNING: THREAD SAFETY: this function will be called from multiple threads concurrently and MUST REMAIN thread-safe.
     // and, for performance-reasons, we're handling our own locking.
-    public void ImportTraceLogLineBinary(byte[] bytes, bool abridgedFormat, BsnesTraceLogCaptureController.TraceLogCaptureSettings settings)
+    public void ImportTraceLogLineBinary(byte[] bytes, bool abridgedFormat, LiveCaptureUserSettings settings)
     {
         var modData = AllocateModificationData();
         
         // first, make a copy of all settings.
-        modData.CaptureSettings = settings;
+        modData.CaptureSettings = settings.Clone();
         
         // then parse the BSNES data for this opcode+operands, and process it
         ParseBinary(bytes, abridgedFormat, out var opcodeLen, modData);
