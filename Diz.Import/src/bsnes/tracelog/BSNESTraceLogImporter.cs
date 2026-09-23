@@ -13,7 +13,26 @@ public partial class BsnesTraceLogImporter
     // and updating the rest of the app for ConcurrentDictionary is a bit painful at the moment.
     // so, we'll buffer any generated comments here in this dict, and at the end we'll copy everything here into 
     // its final home in snesData.Data.Comments
-    private ConcurrentDictionary<int, string> tracelogCommentsGenerated = new();
+    // 2026 update: RPG Hacker (that's me) would really love for live comment updates to be working, so I'll give
+    // this another try. Hopefully by only updating comments irregularly in batches, and only after they've actually
+    // changed, solid enough performance can be achieved with this.
+    private struct CachedCommentUpdate
+    {
+        public string NewCommenText = "";
+        public bool ChangedSinceLastUpdate = true;
+
+        public CachedCommentUpdate()
+        {
+        }
+
+        public CachedCommentUpdate(string newCommentText)
+        {
+            this.NewCommenText = newCommentText;
+            this.ChangedSinceLastUpdate = true;
+        }
+    }
+
+    private ConcurrentDictionary<int, CachedCommentUpdate> tracelogCommentsGenerated = new();
 
     // these are cached mostly to save us from having to lock Data.
     // do not allow these to change over the life of the importer
@@ -90,7 +109,14 @@ public partial class BsnesTraceLogImporter
 
         currentStats.NumRomBytesAnalyzed += numBytesAnalyzed;
     }
-    
+
+    private CachedCommentUpdate UpdateCachedCommentUpdate(int snesAddress, CachedCommentUpdate desiredValue, CachedCommentUpdate oldValue)
+    {
+        CachedCommentUpdate result = desiredValue;
+        result.ChangedSinceLastUpdate = result.ChangedSinceLastUpdate || desiredValue.NewCommenText != oldValue.NewCommenText;
+        return result;
+    }
+
     // assumption: SNES address is an OPCODE that BSNES has identified (it may not be marked in our project yet though).
     // do NOT count on any data (Flags i.e. MX, and whether this is an opcode vs operand vs data) yet being set for this
     // opcode in the Diz project. that may happen AFTER this function is called.
@@ -107,12 +133,15 @@ public partial class BsnesTraceLogImporter
         {
             commentText = "XX*-remove-*XX";
         }
-        
+
         // if adding OR removing, we need to add something to the comment list.
         // later, we'll take the entries from this temp list and put them in the Diz project.
         // we could do it here directly, but, it's too slow.
         if (commentText != null)
-            tracelogCommentsGenerated.AddOrUpdate(NormalizeCommentAddress(snesAddress), commentText, (_, _) => commentText);
+        {
+            CachedCommentUpdate valueIfAdded = new(commentText);
+            tracelogCommentsGenerated.AddOrUpdate(NormalizeCommentAddress(snesAddress), valueIfAdded, (snesAddress, oldValue) => UpdateCachedCommentUpdate(snesAddress, valueIfAdded, oldValue));
+        }
     }
     // private void UpdateTracelogComments(int snesAddress, in LiveCaptureUserSettings traceLogCaptureSettings)
     // {
@@ -219,6 +248,15 @@ public partial class BsnesTraceLogImporter
         // start with the string "TLC". otherwise, we won't allow overwriting.
         foreach (var tlcGenerateComment in tracelogCommentsGenerated)
         {
+            if (!tlcGenerateComment.Value.ChangedSinceLastUpdate)
+            {
+                continue;
+            }
+
+            CachedCommentUpdate update = tlcGenerateComment.Value;
+            update.ChangedSinceLastUpdate = false;
+            tracelogCommentsGenerated.AddOrUpdate(tlcGenerateComment.Key, update, (_, _) => update);
+
             var commentAlreadyExists = snesData.Data.Comments.TryGetValue(tlcGenerateComment.Key, out var val);
             
             // we're only allowed to modify tracelog comments
@@ -228,7 +266,7 @@ public partial class BsnesTraceLogImporter
             // if we get here either there's NO comment already existing, or, it's a tracelog comment and we can overwrite it
             
             // REMOVE: if this SNES address is marked for removal... 
-            if (tlcGenerateComment.Value == "XX*-remove-*XX")
+            if (tlcGenerateComment.Value.NewCommenText == "XX*-remove-*XX")
             {
                 if (snesData.Data.Comments.ContainsKey(tlcGenerateComment.Key))
                     snesData.Data.Comments.Remove(tlcGenerateComment.Key);
@@ -238,7 +276,7 @@ public partial class BsnesTraceLogImporter
             
             // ADD: add this tracelog value and overwrite anything there
             // (This adds the key if it doesn't exist, updates if it already does exist)
-            snesData.Data.Comments[tlcGenerateComment.Key] = tlcGenerateComment.Value;
+            snesData.Data.Comments[tlcGenerateComment.Key] = tlcGenerateComment.Value.NewCommenText;
         }
     }
 }

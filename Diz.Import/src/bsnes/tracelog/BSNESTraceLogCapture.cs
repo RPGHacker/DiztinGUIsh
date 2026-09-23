@@ -147,7 +147,9 @@ public class BsnesTraceLogCaptureController
             throw new InvalidOperationException("stream processor and task manager must not be null");
         
         var count = 0;
-        
+
+        DateTime lastCommentUpdateTime = DateTime.Now;
+
         using var enumWorkItemSnesTraces = streamProcessor.GetCompressedWorkItems(networkStream).GetEnumerator();
         while (streamProcessor.CancelToken is { IsCancellationRequested: false } && enumWorkItemSnesTraces.MoveNext())
         {
@@ -187,6 +189,14 @@ public class BsnesTraceLogCaptureController
             count++;
             if (MaxNumCompressedItemsToProcess != -1 && count >= MaxNumCompressedItemsToProcess)
                 return;
+
+            DateTime currentTime = DateTime.Now;
+            Double timeSinceCommentUpdate = ((TimeSpan)(currentTime - lastCommentUpdateTime)).TotalMilliseconds;
+            if (timeSinceCommentUpdate >= 1000.0)
+            {
+                importer.CopyTempGeneratedCommentsIntoMainSnesData();
+                lastCommentUpdateTime = currentTime;
+            }
         }
         
         Trace.WriteLine($"Processed {count} compressed work items.");
